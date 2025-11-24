@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D 偷蛋龍：驚魂夜 (雙手操控版)</title>
+    <title>3D 偷蛋龍：驚魂夜 (視野優化版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -81,17 +81,6 @@
             pointer-events: none;
         }
         
-        /* 右側視角控制提示區 (隱形但可觸控) */
-        #touch-look-zone {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 50%; 
-            height: 100%;
-            z-index: 15;
-            /* background: rgba(255,0,0,0.1); debug only */ 
-        }
-
         /* 手機版顯示搖桿 */
         @media (max-width: 768px) {
             #joystick-zone { display: block; }
@@ -148,7 +137,7 @@
     <!-- 開始畫面 -->
     <div id="start-screen" class="center-screen bg-gray-800/95 backdrop-blur-xl p-8 rounded-3xl border-2 border-green-600 text-white w-[90%] max-w-md shadow-2xl z-50">
         <h1 class="text-5xl font-bold mb-2 text-green-400 tracking-tighter">🦖 偷蛋大作戰</h1>
-        <p class="text-gray-300 mb-6 font-medium">雙手操控版</p>
+        <p class="text-gray-300 mb-6 font-medium">視野優化版</p>
         <div class="text-left bg-black/30 p-5 rounded-xl mb-8 text-sm text-gray-200 space-y-3 border border-gray-600">
             <p>🕹️ <strong class="text-blue-300">左手搖桿：</strong> 控制前後左右移動 (WASD)。</p>
             <p>👀 <strong class="text-blue-400">右手滑動：</strong> 控制視角轉動。</p>
@@ -180,7 +169,7 @@
         const CONFIG = {
             startDistance: 60,
             nestDistance: 7,
-            moveSpeed: 0.06,   // 慢速潛行
+            moveSpeed: 0.06,
             eggWeightFactor: 0.6, 
             bossScale: 3,
             fogDensity: 0.012, 
@@ -317,8 +306,10 @@
             handLight.position.set(0, 0, 0);
             camera.add(handLight);
 
-            handsGroup.position.set(0, -0.2, -0.6);
-            handsGroup.scale.set(1.8, 1.8, 1.8);
+            // 位置調整：稍微降低 (-0.2 -> -0.3) 避免擋住視野
+            handsGroup.position.set(0, -0.3, -0.6);
+            // 縮放調整：1.8 -> 1.5
+            handsGroup.scale.set(1.5, 1.5, 1.5);
 
             const skinMat = new THREE.MeshStandardMaterial({ color: 0x556b2f, roughness: 0.7 }); 
             const clawMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.5 }); 
@@ -770,96 +761,80 @@
         function updatePlayer(dt) {
             if (player.dead) return;
 
-            // --- 移動計算 (WASD 或 搖桿) ---
             let moveForward = 0;
+            let yawChange = 0;
             let strafe = 0;
 
             if (joystick.active) {
-                // 搖桿控制移動: 
-                // dy: -1(上) ~ 1(下)  ->  前進需要 +1, 後退 -1  =>  moveForward = -dy
-                // dx: -1(左) ~ 1(右)  ->  左移 -1, 右移 +1      =>  strafe = dx
-                moveForward = -joystick.dy;
-                strafe = joystick.dx; 
+                moveForward = -joystick.dy; 
+                yawChange = -joystick.dx * CONFIG.joystickSensitivity;
             } else {
-                // 鍵盤控制
-                if (inputs.w) moveForward = 1;
+                if (inputs.w || inputs.mousePressed) moveForward = 1;
                 if (inputs.s) moveForward = -1;
                 if (inputs.a) strafe = -1;
                 if (inputs.d) strafe = 1;
             }
 
-            // 判斷是否在移動
+            player.yaw += yawChange;
             player.isMoving = (Math.abs(moveForward) > 0.1 || Math.abs(strafe) > 0.1);
 
-            // 死亡判定
             if (player.isMoving && (boss.state === 'awake' || (boss.state === 'turning' && boss.mesh.rotation.y < 1.5))) {
                 endGame();
                 return;
             }
 
-            // --- 手部動畫 ---
             if (handsGroup) {
                 const leftHand = handsGroup.children[0];
                 const rightHand = handsGroup.children[1];
                 
                 if (player.hasEgg) {
-                    // 抱蛋模式
                     eggInHand.visible = true;
                     leftHand.position.x = THREE.MathUtils.lerp(leftHand.position.x, 0.12, 0.1);
                     rightHand.position.x = THREE.MathUtils.lerp(rightHand.position.x, -0.12, 0.1);
                     leftHand.rotation.z = THREE.MathUtils.lerp(leftHand.rotation.z, -0.5, 0.1);
                     rightHand.rotation.z = THREE.MathUtils.lerp(rightHand.rotation.z, 0.5, 0.1);
 
+                    // 抱蛋時手放低 (視野優化)
+                    let targetY = -0.35;
                     if (player.isMoving) {
                         const bob = Math.sin(Date.now() * 0.01) * 0.02;
-                        handsGroup.position.y = -0.15 + bob;
+                        targetY += bob;
                     }
+                    handsGroup.position.y = targetY;
+
                 } else {
-                    // 準備模式
                     eggInHand.visible = false;
                     leftHand.position.x = THREE.MathUtils.lerp(leftHand.position.x, 0.3, 0.1);
                     rightHand.position.x = THREE.MathUtils.lerp(rightHand.position.x, -0.3, 0.1);
                     leftHand.rotation.z = THREE.MathUtils.lerp(leftHand.rotation.z, 0.2, 0.1);
                     rightHand.rotation.z = THREE.MathUtils.lerp(rightHand.rotation.z, -0.2, 0.1);
 
+                    let targetY = -0.3;
                     if (player.isMoving) {
                         const bob = Math.sin(Date.now() * 0.015) * 0.03;
-                        handsGroup.position.y = -0.2 + bob; 
+                        targetY += bob;
                         handsGroup.rotation.z = Math.sin(Date.now() * 0.008) * 0.03;
                     } else {
                         const breath = Math.sin(Date.now() * 0.003) * 0.005;
-                        handsGroup.position.y = -0.2 + breath;
+                        targetY += breath;
                         handsGroup.rotation.z = 0;
                     }
+                    handsGroup.position.y = targetY;
                 }
             }
 
-            // --- 物理移動 ---
             if (player.isMoving) {
-                // 計算基礎速度 (考慮負重)
-                let currentSpeed = CONFIG.moveSpeed * dt;
-                if (player.hasEgg) currentSpeed *= CONFIG.eggWeightFactor;
+                const speed = CONFIG.moveSpeed * dt * Math.max(Math.abs(moveForward), Math.abs(strafe)); 
+                
+                const dx = Math.sin(player.yaw) * moveForward * speed;
+                const dz = Math.cos(player.yaw) * moveForward * speed; 
+                const sx = Math.cos(player.yaw) * strafe * speed;
+                const sz = -Math.sin(player.yaw) * strafe * speed;
 
-                // 限制搖桿強度 (推一點點走慢點)
-                const inputMagnitude = Math.min(1, Math.sqrt(moveForward*moveForward + strafe*strafe)) || 1;
-                const finalSpeed = currentSpeed * inputMagnitude;
-                
-                // 根據當前朝向 (Yaw) 計算位移
-                // Forward: -Z (sin(yaw) for X, cos(yaw) for Z)
-                const dx = Math.sin(player.yaw) * moveForward;
-                const dz = Math.cos(player.yaw) * moveForward; 
-                
-                // Strafe: Right (cos(yaw) for X, -sin(yaw) for Z)
-                const sx = Math.cos(player.yaw) * strafe;
-                const sz = -Math.sin(player.yaw) * strafe;
-
-                player.x -= (dx - sx) * finalSpeed; 
-                player.z -= (dz + sz) * finalSpeed;
-                
-                // 邊界
+                player.x -= dx - sx; 
+                player.z -= dz + sz;
                 player.x = Math.max(-40, Math.min(40, player.x)); 
                 
-                // 頭部晃動
                 player.y = 2 + Math.sin(Date.now() * 0.012) * 0.15;
             } else {
                 player.y = THREE.MathUtils.lerp(player.y, 2, 0.1);
@@ -869,7 +844,6 @@
             camera.rotation.x = player.pitch;
             camera.rotation.y = player.yaw;
 
-            // UI 更新
             let dist;
             if (!player.hasEgg) {
                 dist = Math.max(0, Math.floor(player.z - CONFIG.nestDistance));
@@ -882,7 +856,6 @@
         }
 
         function checkObjectives() {
-            // 偷蛋
             if (!player.hasEgg && player.z <= CONFIG.nestDistance && Math.abs(player.x) < 8) {
                 player.hasEgg = true;
                 eggMesh.visible = false; 
@@ -890,7 +863,6 @@
                 updateObjectiveUI();
             }
 
-            // 回巢
             if (player.hasEgg && player.z >= CONFIG.startDistance - 2 && Math.abs(player.x) < 10) {
                 player.score++;
                 player.hasEgg = false;
@@ -917,11 +889,45 @@
             renderer.render(scene, camera);
         }
 
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (inputs.hasOwnProperty(key)) inputs[key] = true;
+            if (e.code === 'Space') inputs.mousePressed = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (inputs.hasOwnProperty(key)) inputs[key] = false;
+            if (e.code === 'Space') inputs.mousePressed = false;
+        });
+
+        ui.gameContainer.addEventListener('mousedown', (e) => { if(isPointerLocked) inputs.mousePressed = true; });
+        ui.gameContainer.addEventListener('mouseup', () => inputs.mousePressed = false);
+        
+        let lastTouchX = 0;
+        ui.gameContainer.addEventListener('touchstart', (e) => {
+            if (e.target === ui.joystickZone || e.target === ui.joystickKnob) return;
+            lastTouchX = e.touches[0].clientX;
+        }, {passive: false});
+
+        ui.gameContainer.addEventListener('touchmove', (e) => {
+             if (e.target === ui.joystickZone || e.target === ui.joystickKnob) return;
+             
+            if (e.touches.length > 0) {
+                const deltaX = e.touches[0].clientX - lastTouchX;
+                lastTouchX = e.touches[0].clientX;
+                player.yaw -= deltaX * 0.005;
+            }
+        }, {passive: false});
+
         function setUiState(state) {
             ui.startScreen.classList.add('hidden');
             ui.endScreen.classList.add('hidden');
-            if (state === 'start') ui.startScreen.classList.remove('hidden');
-            if (state === 'lose') ui.endScreen.classList.remove('hidden');
+            
+            if (state === 'start') {
+                ui.startScreen.classList.remove('hidden');
+            } else if (state === 'lose') {
+                ui.endScreen.classList.remove('hidden');
+            }
         }
 
         ui.startBtn.addEventListener('click', startGame);
